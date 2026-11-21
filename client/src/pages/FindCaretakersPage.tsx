@@ -132,7 +132,7 @@ export function FindCaretakersPage() {
           onChange={(e) => setMaxRate(e.target.value)}
           className="rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
         >
-          <option value="">Any Monthly Rate</option>
+          <option value="">Monthly Rate</option>
           <option value="18000">Up to Nu. 18,000/mo</option>
           <option value="22000">Up to Nu. 22,000/mo</option>
           <option value="25000">Up to Nu. 25,000/mo</option>
