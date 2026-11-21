@@ -11,7 +11,6 @@ import {
   ChevronDown,
   Mail,
   Sparkles,
-  MapPin,
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 
@@ -177,10 +176,12 @@ function Hero() {
                 ))}
                 <circle cx="200" cy="230" r="26" className="fill-accent" />
               </svg>
+              
+              {/* YOUR IMAGE IS ADDED HERE */}
               <img
-                src="/images/LandingPic.png"
+                src="images\avatars\LandingPic.png"
                 alt="Caregiver reading with a young child"
-                className="relative h-full w-full object-cover"
+                className="relative h-full w-full object-cover z-10"
                 onError={(e) => (e.currentTarget.style.display = 'none')}
               />
             </div>
