@@ -121,7 +121,7 @@ export function FindCaretakersPage() {
           onChange={(e) => setMinExp(e.target.value)}
           className="rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
         >
-          <option value="">Any Experience</option>
+          <option value="">Year of Experience</option>
           <option value="2">2+ Years Experience</option>
           <option value="5">5+ Years Experience</option>
           <option value="7">7+ Years Experience</option>
