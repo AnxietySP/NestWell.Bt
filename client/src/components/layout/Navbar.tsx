@@ -1,10 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X, LayoutDashboard, LogOut } from 'lucide-react';
-import { AnimatePresence, motion } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { ThemeToggle } from '../shared/ThemeToggle';
-import { LogoMark, Wordmark } from '../shared/Logo';
 import { Button } from '../ui/Button';
 
 const NAV_ITEMS = [
@@ -15,23 +13,26 @@ const NAV_ITEMS = [
   { label: 'Contact & FAQ', to: '/#contact', hash: '#contact' },
 ];
 
+const LOGO_SRC = '/images/avatars/logo.png';
+
 export function Navbar() {
   const { user, logout } = useAuth();
   const { pathname, hash } = useLocation();
-  const navigate = useNavigate();
-  const [mobileOpen, setMobileOpen] = useState(false);
-
-  useEffect(() => setMobileOpen(false), [pathname, hash]);
 
   const isActive = (item: (typeof NAV_ITEMS)[number]) => {
     if (item.to === '/caretakers') return pathname === '/caretakers';
     if (pathname !== '/') return false;
     return item.hash === '' ? hash === '' || hash === '#home' : hash === item.hash;
   };
+  const navigate = useNavigate();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const dashboardPath =
-    user?.role === 'ADMIN' ? '/dashboard/admin' : user?.role === 'CARETAKER' ? '/dashboard/caretaker' : '/dashboard/parent';
-  const target = user && !user.isEmailVerified ? '/verify-email' : dashboardPath;
+    user?.role === 'ADMIN'
+      ? '/dashboard/admin'
+      : user?.role === 'CARETAKER'
+      ? '/dashboard/caretaker'
+      : '/dashboard/parent';
 
   const handleLogout = async () => {
     await logout();
@@ -39,76 +40,111 @@ export function Navbar() {
   };
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/70 bg-bg/85 backdrop-blur-lg">
-      <div className="mx-auto flex h-[68px] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-        <Link to="/" className="flex shrink-0 items-center gap-2.5" aria-label="NestWell.BT home">
-          <LogoMark className="h-9 w-9" />
-          <Wordmark />
+    <header className="sticky top-0 z-40 border-b border-border bg-bg/90 backdrop-blur-md">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        {/* Logo + brand name */}
+        <Link to="/" className="flex items-center gap-2.5" aria-label="NestWell.BT home">
+          <img
+            src={LOGO_SRC}
+            alt="NestWell.BT logo"
+            className="h-10 w-10 rounded-lg bg-white object-contain p-1 ring-1 ring-border"
+          />
+          <span className="font-serif text-xl font-semibold tracking-tight text-fg">
+            NestWell<span className="text-primary">.BT</span>
+          </span>
         </Link>
 
-        <nav aria-label="Main" className="hidden items-center gap-1 lg:flex">
-          {NAV_ITEMS.map((item) => {
-            const active = isActive(item);
-            return (
-              <Link key={item.label} to={item.to} aria-current={active ? 'page' : undefined} className={`relative whitespace-nowrap rounded-control px-3.5 py-2 text-sm font-semibold transition-colors ${active ? 'text-primary' : 'text-fg-muted hover:text-fg'}`}>
-                {active && <motion.span layoutId="nav-active" className="absolute inset-0 -z-10 rounded-control bg-primary-soft" transition={{ type: 'spring', stiffness: 500, damping: 40 }} />}
-                {item.label}
-              </Link>
-            );
-          })}
+        <nav className="hidden md:flex items-center gap-7 text-sm font-medium">
+          {NAV_ITEMS.map((item) => (
+            <Link
+              key={item.label}
+              to={item.to}
+              className={isActive(item) ? 'text-primary' : 'text-fg-muted hover:text-fg'}
+            >
+              {item.label}
+            </Link>
+          ))}
         </nav>
 
-        <div className="hidden shrink-0 items-center gap-2 lg:flex">
+        <div className="hidden md:flex items-center gap-3">
           <ThemeToggle />
           {user ? (
             <>
-              <Button size="sm" onClick={() => navigate(target)}>
-                <LayoutDashboard className="h-4 w-4" aria-hidden /> {user.isEmailVerified ? 'Dashboard' : 'Verify email'}
+              <Button size="sm" onClick={() => navigate(dashboardPath)}>
+                <LayoutDashboard className="h-4 w-4" /> Dashboard
               </Button>
-              <Button size="sm" variant="ghost" onClick={handleLogout} aria-label="Sign out"><LogOut className="h-4 w-4" /></Button>
+              <Button size="sm" variant="ghost" onClick={handleLogout}>
+                <LogOut className="h-4 w-4" />
+              </Button>
             </>
           ) : (
             <>
-              <Link to="/login"><Button variant="ghost" size="sm">Sign in</Button></Link>
-              <Link to="/register"><Button size="sm">Get started</Button></Link>
+              <Link to="/login">
+                <Button variant="ghost" size="sm">
+                  Login
+                </Button>
+              </Link>
+              <Link to="/register">
+                <Button size="sm">Get Started</Button>
+              </Link>
             </>
           )}
         </div>
 
-        <div className="flex items-center gap-2 lg:hidden">
+        <div className="flex items-center gap-2 md:hidden">
           <ThemeToggle />
-          <button type="button" onClick={() => setMobileOpen((o) => !o)} aria-label={mobileOpen ? 'Close menu' : 'Open menu'} aria-expanded={mobileOpen} className="rounded-control border border-border bg-surface p-2 text-fg">
+          <button
+            type="button"
+            onClick={() => setMobileOpen(!mobileOpen)}
+            aria-label="Toggle Menu"
+            className="rounded-lg border border-border bg-surface p-2 text-fg"
+          >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
       </div>
 
-      <AnimatePresence>
-        {mobileOpen && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden border-t border-border bg-surface lg:hidden">
-            <div className="space-y-3 px-4 py-4">
-              <nav aria-label="Mobile" className="flex flex-col text-sm font-semibold">
-                {NAV_ITEMS.map((item) => (
-                  <Link key={item.label} to={item.to} className={`rounded-control px-3 py-2.5 ${isActive(item) ? 'bg-primary-soft text-primary' : 'text-fg'}`}>{item.label}</Link>
-                ))}
-              </nav>
-              <div className="flex gap-2 border-t border-border pt-3">
-                {user ? (
-                  <>
-                    <Button className="flex-1" size="sm" onClick={() => navigate(target)}>{user.isEmailVerified ? 'Dashboard' : 'Verify email'}</Button>
-                    <Button variant="outline" size="sm" onClick={handleLogout}>Sign out</Button>
-                  </>
-                ) : (
-                  <>
-                    <Link to="/login" className="flex-1"><Button variant="outline" className="w-full" size="sm">Sign in</Button></Link>
-                    <Link to="/register" className="flex-1"><Button className="w-full" size="sm">Get started</Button></Link>
-                  </>
-                )}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {mobileOpen && (
+        <div className="border-t border-border bg-surface px-4 py-4 space-y-3 md:hidden">
+          <div className="flex flex-col space-y-2 text-sm font-medium">
+            {NAV_ITEMS.map((item) => (
+              <Link
+                key={item.label}
+                to={item.to}
+                onClick={() => setMobileOpen(false)}
+                className={`py-1.5 ${isActive(item) ? 'text-primary' : 'text-fg'}`}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+          <div className="flex gap-2 border-t border-border pt-3">
+            {user ? (
+              <>
+                <Button className="flex-1" size="sm" onClick={() => { setMobileOpen(false); navigate(dashboardPath); }}>
+                  Dashboard
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => { setMobileOpen(false); handleLogout(); }}>
+                  Logout
+                </Button>
+              </>
+            ) : (
+              <>
+                <Link to="/login" className="flex-1" onClick={() => setMobileOpen(false)}>
+                  <Button variant="outline" className="w-full" size="sm">
+                    Login
+                  </Button>
+                </Link>
+                <Link to="/register" className="flex-1" onClick={() => setMobileOpen(false)}>
+                  <Button className="w-full" size="sm">
+                    Get Started
+                  </Button>
+                </Link>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </header>
   );
 }
