@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Design tokens — "Poppy & Saffron"
+  Primary is the Himalayan blue poppy; accent is monastic saffron. Values are RGB channels
+  (no commas) so Tailwind can apply opacity: rgb(var(--color-primary) / 0.2).
+*/
+@layer base {
+  :root {
+    --color-bg: 245 247 251;
+    --color-surface: 255 255 255;
+    --color-surface-subtle: 235 239 247;
+    --color-border: 217 224 238;
+    --color-fg: 18 27 51;
+    --color-fg-muted: 85 96 124;
+
+    --color-primary: 54 71 209;
+    --color-primary-hover: 42 56 174;
+    --color-primary-soft: 228 232 251;
+    --color-primary-fg: 255 255 255;
+
+    --color-accent: 242 167 27;
+    --color-accent-fg: 58 38 0;
+
+    --color-success: 20 128 79;
+    --color-success-soft: 222 244 232;
+    --color-warning: 163 95 0;
+    --color-warning-soft: 253 240 214;
+    --color-danger: 199 54 54;
+    --color-danger-soft: 252 228 228;
+
+    --color-ink: 22 30 66;
+
+    --shadow: 18 27 51;
+  }
+
+  .dark {
+    --color-bg: 12 18 34;
+    --color-surface: 20 28 51;
+    --color-surface-subtle: 27 37 64;
+    --color-border: 42 54 89;
+    --color-fg: 238 241 250;
+    --color-fg-muted: 160 170 200;
+
+    --color-primary: 141 155 255;
+    --color-primary-hover: 168 179 255;
+    --color-primary-soft: 34 44 90;
+    --color-primary-fg: 12 18 34;
+
+    --color-accent: 245 182 61;
+    --color-accent-fg: 58 38 0;
+
+    --color-success: 74 201 140;
+    --color-success-soft: 18 52 41;
+    --color-warning: 245 182 61;
+    --color-warning-soft: 58 44 14;
+    --color-danger: 255 125 125;
+    --color-danger-soft: 64 26 32;
+
+    --color-ink: 27 37 84;
+
+    --shadow: 0 0 0;
+  }
+
+  html {
+    font-family: 'Figtree', system-ui, sans-serif;
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: rgb(var(--color-bg));
+    color: rgb(var(--color-fg));
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: 'Bricolage Grotesque', 'Figtree', system-ui, sans-serif;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  ::selection {
+    background-color: rgb(var(--color-primary) / 0.22);
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--color-primary));
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  }
+}
