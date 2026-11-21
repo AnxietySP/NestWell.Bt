@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Phone, Mail } from 'lucide-react';
-import { LogoMark, Wordmark } from '../shared/Logo';
+import { Wordmark } from '../shared/Logo';
 
 export function Footer() {
   return (
@@ -9,7 +9,11 @@ export function Footer() {
         <div className="grid gap-8 md:grid-cols-4">
           <div className="space-y-3">
             <Link to="/" className="flex items-center gap-3">
-              <LogoMark className="h-10 w-10" />
+              <img 
+                src="/images/avatars/logo.png" 
+                alt="NestWell Logo" 
+                className="h-10 w-10 object-contain rounded-xl" 
+              />
               <Wordmark />
             </Link>
             <p className="text-sm text-fg-muted leading-relaxed">
