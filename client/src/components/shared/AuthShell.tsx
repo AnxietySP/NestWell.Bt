@@ -23,8 +23,9 @@ export function AuthShell({ children, wide = false }: { children: React.ReactNod
           <circle cx="200" cy="200" r="22" className="fill-accent" />
         </svg>
 
-        <Link to="/" className="relative flex items-center gap-3 self-start">
-          <LogoMark className="h-10 w-10" />
+        {/* NestWell logo + name */}
+        <Link to="/" className="relative flex items-center gap-3 self-start" aria-label="NestWell.BT home">
+          <LogoMark className="h-12 w-12 !rounded-xl !p-1.5 !shadow-md" />
           <span className="font-display text-2xl font-bold tracking-display">NestWell.BT</span>
         </Link>
 
