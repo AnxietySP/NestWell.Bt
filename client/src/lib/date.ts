@@ -33,8 +33,10 @@ export function addCalendarMonths(startDateStr: string, months: number): string 
   return target.toISOString().slice(0, 10);
 }
 
-export function formatBtn(amount: number): string {
-  return `Nu. ${amount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+export function formatBtn(amount: number | string): string {
+  // MySQL DECIMAL columns arrive as strings ("108000.00"); coerce so they get grouped like numbers.
+  const value = Number(amount);
+  return `Nu. ${(Number.isFinite(value) ? value : 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 }
 
 export function formatDisplayDate(isoDate: string): string {

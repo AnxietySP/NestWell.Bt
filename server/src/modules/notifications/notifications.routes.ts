@@ -45,4 +45,27 @@ router.patch('/read-all', authenticate, async (req: Request, res: Response, next
   }
 });
 
+// Delete ALL notifications for the logged-in user
+router.delete('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await pool.execute(`DELETE FROM notifications WHERE user_id = ?`, [req.user!.sub]);
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Delete ONE notification (only if it belongs to the logged-in user)
+router.delete('/:id', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await pool.execute(`DELETE FROM notifications WHERE id = ? AND user_id = ?`, [
+      req.params.id,
+      req.user!.sub,
+    ]);
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
