@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
-import { RowDataPacket } from 'mysql2';
+import { RowDataPacket, ResultSetHeader } from 'mysql2';
 import { pool } from '../../config/db';
 import { authenticate, authorize } from '../../middlewares/auth.middleware';
 
@@ -36,7 +36,15 @@ router.post('/children', authenticate, authorize('PARENT'), async (req: Request,
     await pool.execute(
       `INSERT INTO children (id, parent_id, full_name, date_of_birth, allergies, medical_notes, special_instructions)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, req.user!.sub, data.fullName.trim(), data.dateOfBirth, data.allergies || null, data.medicalNotes || null, data.specialInstructions || null]
+      [
+        id,
+        req.user!.sub,
+        data.fullName.trim(),
+        data.dateOfBirth,
+        data.allergies || null,
+        data.medicalNotes || null,
+        data.specialInstructions || null,
+      ]
     );
     res.status(201).json({ id, ...data });
   } catch (err) {
@@ -46,9 +54,38 @@ router.post('/children', authenticate, authorize('PARENT'), async (req: Request,
 
 router.delete('/children/:id', authenticate, authorize('PARENT'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    await pool.execute('DELETE FROM children WHERE id = ? AND parent_id = ?', [req.params.id, req.user!.sub]);
+    const childId = req.params.id;
+    const parentId = req.user!.sub;
+
+    const [bookingRows] = await pool.execute<RowDataPacket[]>(
+      'SELECT id, status FROM bookings WHERE child_id = ? LIMIT 1',
+      [childId]
+    );
+
+    if (bookingRows.length > 0) {
+      return res.status(400).json({
+        message: 'Cannot delete this child profile because it is linked to an existing or past childcare contract.',
+      });
+    }
+
+    const [result] = await pool.execute<ResultSetHeader>(
+      'DELETE FROM children WHERE id = ? AND parent_id = ?',
+      [childId, parentId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        message: 'Child profile not found or does not belong to your account.',
+      });
+    }
+
     res.json({ success: true });
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.code === 'ER_ROW_IS_REFERENCED_2') {
+      return res.status(400).json({
+        message: 'Cannot delete this child profile because it is referenced by existing records.',
+      });
+    }
     next(err);
   }
 });

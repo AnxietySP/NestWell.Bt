@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   LayoutDashboard,
   ShieldCheck,
@@ -20,15 +21,19 @@ import {
   ExternalLink,
   MapPin,
   RefreshCw,
+  X,
+  Eye,
+  Baby,
+  Mail,
+  Phone,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { formatBtn, formatDisplayDate } from '../lib/date';
-import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 
-type SidebarSection = 'OVERVIEW' | 'VERIFICATIONS' | 'ANALYTICS' | 'CONTRACTS';
+type SidebarSection = 'OVERVIEW' | 'PARENTS' | 'VERIFICATIONS' | 'ANALYTICS' | 'CONTRACTS';
 type VerificationFilter = 'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
 interface AdminCaretakerRow {
@@ -46,6 +51,21 @@ interface AdminCaretakerRow {
   certificateDocumentPath?: string | null;
   rejectionReason?: string | null;
   avatarUrl?: string | null;
+}
+
+interface AdminParentRow {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  dzongkhag?: string | null;
+  address?: string | null;
+  avatarUrl?: string | null;
+  isActive?: boolean | number;
+  createdAt?: string | null;
+  childrenCount: number;
+  totalBookingsCount: number;
+  activeContractsCount: number;
 }
 
 interface AdminStats {
@@ -75,6 +95,30 @@ function resolveDocumentUrl(rawPath?: string | null): string | null {
   return `${apiBase}/${cleaned}`;
 }
 
+function VerificationPill({ status }: { status: 'PENDING' | 'APPROVED' | 'REJECTED' | string }) {
+  if (status === 'APPROVED' || ['CONFIRMED', 'ACTIVE', 'ACCEPTED'].includes(status)) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-[#BFD3F5] bg-[#E6EFFC] px-2.5 py-0.5 text-[11px] font-semibold tracking-wide text-[#1A56B8]">
+        <span className="h-1.5 w-1.5 rounded-full bg-[#1A56B8]" />
+        {status}
+      </span>
+    );
+  }
+  if (status === 'REJECTED' || status === 'CANCELLED') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-0.5 text-[11px] font-semibold tracking-wide text-rose-700">
+        {status}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold tracking-wide text-amber-700">
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+      {status}
+    </span>
+  );
+}
+
 export function AdminDashboard() {
   const { user, refreshUser, logout } = useAuth();
   const navigate = useNavigate();
@@ -88,6 +132,7 @@ export function AdminDashboard() {
     activeContracts: 0,
   });
   const [caretakers, setCaretakers] = useState<AdminCaretakerRow[]>([]);
+  const [parents, setParents] = useState<AdminParentRow[]>([]);
   const [bookings, setBookings] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -100,6 +145,8 @@ export function AdminDashboard() {
   const [cidModalCaretaker, setCidModalCaretaker] = useState<AdminCaretakerRow | null>(null);
   const [rejectModalCaretaker, setRejectModalCaretaker] = useState<AdminCaretakerRow | null>(null);
   const [deleteModalCaretaker, setDeleteModalCaretaker] = useState<AdminCaretakerRow | null>(null);
+  const [viewModalParent, setViewModalParent] = useState<AdminParentRow | null>(null);
+  const [deleteModalParent, setDeleteModalParent] = useState<AdminParentRow | null>(null);
   const [deleteModalBooking, setDeleteModalBooking] = useState<any | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
@@ -111,9 +158,10 @@ export function AdminDashboard() {
     setLoadingData(true);
     setLoadError(null);
     try {
-      const [statsRes, caretakersRes, usersRes, bookingsRes] = await Promise.all([
+      const [statsRes, caretakersRes, parentsRes, usersRes, bookingsRes] = await Promise.all([
         api.get('/admin/stats').catch(() => api.get('/admin/overview').catch(() => ({ data: {} }))),
         api.get('/admin/caretakers').catch(() => ({ data: null })),
+        api.get('/admin/parents').catch(() => ({ data: null })),
         api.get('/admin/users').catch(() => ({ data: null })),
         api.get('/admin/bookings').catch(() =>
           api.get('/bookings').catch(() => ({ data: { bookings: [] } }))
@@ -158,14 +206,38 @@ export function AdminDashboard() {
 
       setCaretakers(normalized);
 
+      const allUsersList: any[] =
+        usersRes.data?.users || (Array.isArray(usersRes.data) ? usersRes.data : []);
+      let rawParents: any[] = [];
+      if (Array.isArray(parentsRes.data?.parents)) {
+        rawParents = parentsRes.data.parents;
+      } else if (Array.isArray(parentsRes.data)) {
+        rawParents = parentsRes.data;
+      } else {
+        rawParents = allUsersList.filter((u: any) => u.role === 'PARENT');
+      }
+
+      const normalizedParents: AdminParentRow[] = rawParents.map((p: any) => ({
+        id: p.id || p.userId || p.user_id,
+        fullName: p.fullName || p.full_name || 'Parent',
+        email: p.email || '',
+        phone: p.phone || '',
+        dzongkhag: p.dzongkhag || null,
+        address: p.address || null,
+        avatarUrl: p.avatarUrl || p.avatar_url || null,
+        isActive: p.isActive ?? p.is_active ?? true,
+        createdAt: p.createdAt || p.created_at || null,
+        childrenCount: Number(p.childrenCount ?? p.children_count ?? 0),
+        totalBookingsCount: Number(p.totalBookingsCount ?? p.total_bookings_count ?? 0),
+        activeContractsCount: Number(p.activeContractsCount ?? p.active_contracts_count ?? 0),
+      }));
+
+      setParents(normalizedParents);
+
       const rawBookings = bookingsRes.data?.bookings || bookingsRes.data || [];
       setBookings(Array.isArray(rawBookings) ? rawBookings : []);
 
       const s = statsRes.data?.stats || statsRes.data || {};
-      const allUsersList: any[] =
-        usersRes.data?.users || (Array.isArray(usersRes.data) ? usersRes.data : []);
-      const parentsFromUsers = allUsersList.filter((u: any) => u.role === 'PARENT').length;
-
       const verifiedCount = normalized.filter(
         (c) => c.verificationStatus === 'APPROVED'
       ).length;
@@ -174,7 +246,7 @@ export function AdminDashboard() {
       ).length;
 
       setStats({
-        totalParents: Number(s.totalParents ?? s.parentsCount ?? parentsFromUsers),
+        totalParents: Number(s.totalParents ?? s.parentsCount ?? normalizedParents.length),
         totalCaretakers: Number(s.totalCaretakers ?? normalized.length),
         verifiedCaretakers: Number(s.verifiedCaretakers ?? verifiedCount),
         pendingCaretakers: Number(
@@ -300,6 +372,24 @@ export function AdminDashboard() {
     }
   };
 
+  const handleDeleteParent = async (parent: AdminParentRow) => {
+    setActionBusyId(parent.id);
+    setBannerMessage(null);
+    try {
+      await api.delete(`/admin/parents/${parent.id}`);
+      setBannerMessage(`Removed parent account (${parent.fullName}) and associated records.`);
+      setDeleteModalParent(null);
+      setViewModalParent(null);
+      await loadAdminData();
+    } catch (err: any) {
+      window.alert(
+        err?.response?.data?.message || 'Unable to delete parent account.'
+      );
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
   const handleDeleteBooking = async (booking: any) => {
     setActionBusyId(booking.id);
     setBannerMessage(null);
@@ -371,6 +461,18 @@ export function AdminDashboard() {
     });
   }, [caretakers, statusFilter, searchQuery]);
 
+  const filteredParents = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return parents;
+    return parents.filter(
+      (p) =>
+        p.fullName.toLowerCase().includes(q) ||
+        p.email.toLowerCase().includes(q) ||
+        (p.phone || '').toLowerCase().includes(q) ||
+        (p.dzongkhag || '').toLowerCase().includes(q)
+    );
+  }, [parents, searchQuery]);
+
   const navItems: {
     id: SidebarSection;
     label: string;
@@ -379,10 +481,16 @@ export function AdminDashboard() {
   }[] = [
     { id: 'OVERVIEW', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
     {
+      id: 'PARENTS',
+      label: 'Registered Parents',
+      icon: <Users className="h-4 w-4" />,
+      badge: parents.length || stats.totalParents || undefined,
+    },
+    {
       id: 'VERIFICATIONS',
-      label: 'Verification Queue',
+      label: 'Caretakers',
       icon: <ShieldCheck className="h-4 w-4" />,
-      badge: pendingCount || undefined,
+      badge: caretakers.length || undefined,
     },
     {
       id: 'ANALYTICS',
@@ -410,12 +518,12 @@ export function AdminDashboard() {
   );
 
   return (
-    <div className="min-h-screen bg-bg">
+    <div className="min-h-screen bg-[#F8FAFE]">
       <div className="flex min-h-screen w-full flex-col lg:flex-row">
         {/* ================================================================= */}
-        {/* LEFT SIDEBAR RAIL                                                 */}
+        {/* LEFT SIDEBAR RAIL (Royal Blue Theme matching Reference Design)    */}
         {/* ================================================================= */}
-        <aside className="w-full shrink-0 border-b border-border bg-surface px-4 py-5 lg:sticky lg:top-0 lg:h-screen lg:w-64 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-5 lg:py-7 flex flex-col justify-between">
+        <aside className="flex w-full shrink-0 flex-col justify-between bg-[#1A56B8] px-4 py-5 text-white lg:sticky lg:top-0 lg:h-screen lg:w-64 lg:overflow-y-auto lg:px-5 lg:py-7">
           <div className="space-y-6">
             {/* Admin Profile & Avatar Controls */}
             <div className="space-y-3">
@@ -425,18 +533,18 @@ export function AdminDashboard() {
                     <img
                       src={user.avatarUrl}
                       alt={user.fullName}
-                      className="h-11 w-11 shrink-0 rounded-xl object-cover border border-border"
+                      className="h-11 w-11 shrink-0 rounded-full border-2 border-white/30 object-cover"
                     />
                   ) : (
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-ink text-sm font-semibold text-white">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold text-[#1A56B8] shadow-sm">
                       {getInitials(user?.fullName)}
                     </div>
                   )}
                   <div className="min-w-0">
-                    <p className="truncate font-serif text-base font-semibold text-fg">
+                    <p className="truncate font-display text-base font-semibold text-white">
                       {user?.fullName || 'Administrator'}
                     </p>
-                    <p className="truncate text-xs text-fg-muted">
+                    <p className="truncate text-xs text-blue-100/80">
                       NestWell.BT • Admin
                     </p>
                   </div>
@@ -446,7 +554,7 @@ export function AdminDashboard() {
                 <button
                   type="button"
                   onClick={() => setLogoutModalOpen(true)}
-                  className="lg:hidden inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-fg-muted hover:text-danger"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/20 lg:hidden"
                 >
                   <LogOut className="h-3.5 w-3.5" /> Log out
                 </button>
@@ -465,9 +573,9 @@ export function AdminDashboard() {
                   type="button"
                   disabled={avatarBusy}
                   onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-border bg-surface-subtle/70 px-2.5 py-1.5 text-[11px] font-medium text-fg hover:border-primary/40 hover:text-primary transition-colors disabled:opacity-50"
+                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full bg-white px-3 py-2 text-[11px] font-semibold text-[#1A56B8] shadow-sm transition-colors hover:bg-blue-50 disabled:opacity-50"
                 >
-                  <Camera className="h-3.5 w-3.5 text-primary" />
+                  <Camera className="h-3.5 w-3.5" />
                   {avatarBusy ? 'Saving...' : user?.avatarUrl ? 'Update Photo' : 'Upload Photo'}
                 </button>
 
@@ -477,7 +585,7 @@ export function AdminDashboard() {
                     disabled={avatarBusy}
                     onClick={handleAvatarRemove}
                     title="Delete profile picture"
-                    className="inline-flex items-center justify-center gap-1 rounded-xl border border-border bg-surface-subtle/70 px-2.5 py-1.5 text-[11px] font-medium text-fg-muted hover:border-danger/40 hover:text-danger transition-colors disabled:opacity-50"
+                    className="inline-flex items-center justify-center gap-1 rounded-full border border-white/25 bg-white/10 px-3 py-2 text-[11px] font-medium text-white transition-colors hover:bg-white/20 disabled:opacity-50"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                     <span>Delete</span>
@@ -497,11 +605,15 @@ export function AdminDashboard() {
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setActiveSection(item.id)}
+                    onClick={() => {
+                      if (item.id === 'VERIFICATIONS') setStatusFilter('ALL');
+                      setActiveSection(item.id);
+                    }}
+                    aria-current={isActive ? 'page' : undefined}
                     className={`flex shrink-0 items-center justify-between gap-2.5 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all ${
                       isActive
-                        ? 'bg-primary/12 text-primary font-semibold'
-                        : 'text-fg-muted hover:bg-surface-subtle hover:text-fg'
+                        ? 'bg-white/20 font-semibold text-white shadow-sm'
+                        : 'text-blue-100/85 hover:bg-white/10 hover:text-white'
                     }`}
                   >
                     <span className="flex items-center gap-2.5">
@@ -512,8 +624,8 @@ export function AdminDashboard() {
                       <span
                         className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                           isActive
-                            ? 'bg-primary text-white'
-                            : 'bg-surface-subtle text-fg-muted'
+                            ? 'bg-white text-[#1A56B8]'
+                            : 'bg-white/15 text-white'
                         }`}
                       >
                         {item.badge}
@@ -525,18 +637,18 @@ export function AdminDashboard() {
             </nav>
           </div>
 
-          {/* Bottom Dark Audit Card & Logout Trigger */}
-          <div className="hidden lg:block space-y-3 pt-4">
-            <div className="rounded-2xl bg-ink p-4 text-white space-y-2.5 shadow-soft">
+          {/* Bottom Royal-Blue Audit Card & Logout Trigger */}
+          <div className="hidden space-y-3 pt-4 lg:block">
+            <div className="space-y-2.5 rounded-2xl border border-white/15 bg-[#134291]/70 p-4 text-white">
               <div className="flex items-center justify-between text-xs font-semibold">
-                <span className="flex items-center gap-1.5 text-accent">
-                  <ShieldCheck className="h-4 w-4" /> Credential Audit
+                <span className="flex items-center gap-1.5 text-white">
+                  <ShieldCheck className="h-4 w-4 text-blue-200" /> Credential Audit
                 </span>
-                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-accent">
+                <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold text-white">
                   {pendingCount} Pending
                 </span>
               </div>
-              <p className="text-[11px] text-stone-300 leading-relaxed">
+              <p className="text-[11px] leading-relaxed text-blue-100/80">
                 Inspect Citizenship ID and Institution Certificates before approving caretaker profiles.
               </p>
               <button
@@ -545,17 +657,17 @@ export function AdminDashboard() {
                   setActiveSection('VERIFICATIONS');
                   setStatusFilter('PENDING');
                 }}
-                className="block w-full rounded-xl bg-primary py-2 text-center text-xs font-semibold text-white transition-opacity hover:opacity-95"
+                className="block w-full rounded-full bg-white py-2 text-center text-xs font-semibold text-[#1A56B8] shadow-sm transition-colors hover:bg-blue-50"
               >
                 Review Pending Docs
               </button>
             </div>
 
-            <div className="border-t border-border pt-3">
+            <div className="border-t border-white/15 pt-3">
               <button
                 type="button"
                 onClick={() => setLogoutModalOpen(true)}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-fg-muted hover:bg-danger/10 hover:text-danger transition-colors"
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-blue-100/85 transition-colors hover:bg-white/10 hover:text-white"
               >
                 <LogOut className="h-3.5 w-3.5" /> Log out
               </button>
@@ -566,28 +678,32 @@ export function AdminDashboard() {
         {/* ================================================================= */}
         {/* MAIN WORKSPACE CANVAS                                             */}
         {/* ================================================================= */}
-        <main className="flex-1 min-w-0 px-4 py-6 sm:px-6 lg:px-8 lg:py-7">
-          <div className="mx-auto max-w-[1280px] space-y-6">
+        <main className="min-w-0 flex-1 bg-white px-4 py-6 sm:px-6 lg:rounded-l-[28px] lg:px-10 lg:py-8 lg:shadow-[-4px_0_24px_rgba(26,86,184,0.06)]">
+          <div className="mx-auto max-w-[1400px] space-y-6">
             {/* Top Bar */}
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h1 className="font-serif text-2xl sm:text-3xl font-semibold text-fg">
+                <h1 className="font-display text-2xl font-semibold tracking-display text-slate-900 sm:text-3xl">
                   Platform Administration
                 </h1>
-                <p className="text-xs text-fg-muted mt-0.5">
-                  Audit caretaker Citizenship IDs & certificates, oversee 6-month contracts, and monitor platform growth.
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Audit caretaker Citizenship IDs & certificates, manage registered parents, and oversee 6-month contracts.
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2.5">
                 <div className="relative">
-                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted" />
+                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search applicant, Dzongkhag..."
-                    className="w-52 sm:w-64 rounded-full border border-border bg-surface py-2 pl-9 pr-4 text-xs text-fg placeholder:text-fg-muted shadow-2xs focus:border-primary focus:outline-none"
+                    placeholder={
+                      activeSection === 'PARENTS'
+                        ? 'Search parent name, email, phone...'
+                        : 'Search applicant, Dzongkhag...'
+                    }
+                    className="w-52 rounded-full border border-[#E2E8F4] bg-[#F3F7FD] py-2 pl-9 pr-4 text-xs text-slate-800 placeholder:text-slate-400 focus:border-[#1A56B8] focus:bg-white focus:outline-none focus:shadow-focus sm:w-64"
                   />
                 </div>
 
@@ -595,14 +711,14 @@ export function AdminDashboard() {
                   type="button"
                   onClick={loadAdminData}
                   disabled={loadingData}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3.5 py-2 text-xs font-medium text-fg hover:border-primary/40 hover:text-primary transition-colors"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#C7D9F7] bg-[#F3F7FD] px-4 py-2 text-xs font-semibold text-[#1A56B8] transition-colors hover:bg-[#E6EFFC]"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${loadingData ? 'animate-spin' : ''}`} />
                   Refresh
                 </button>
 
-                <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3.5 py-2 text-xs font-medium text-fg-muted">
-                  <Calendar className="h-3.5 w-3.5 text-primary" />
+                <span className="inline-flex items-center gap-2 rounded-full border border-[#E2E8F4] bg-[#F3F7FD] px-3.5 py-2 text-xs font-medium text-slate-600">
+                  <Calendar className="h-3.5 w-3.5 text-[#1A56B8]" />
                   {new Date().toLocaleDateString('en-US', {
                     day: 'numeric',
                     month: 'short',
@@ -613,487 +729,848 @@ export function AdminDashboard() {
             </div>
 
             {loadError && (
-              <div className="rounded-2xl border border-danger/30 bg-danger/10 px-5 py-3 text-xs font-medium text-danger">
+              <div className="rounded-card border border-danger/30 bg-danger/10 px-5 py-3 text-xs font-medium text-danger">
                 {loadError}
               </div>
             )}
 
-            {bannerMessage && (
-              <div className="rounded-2xl border border-primary/30 bg-primary/10 px-5 py-3 text-xs font-medium text-fg">
-                {bannerMessage}
-              </div>
-            )}
+            <AnimatePresence>
+              {bannerMessage && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  className="flex items-center justify-between gap-3 rounded-card border border-[#BFD3F5] bg-[#EBF2FC] px-5 py-3 text-xs font-medium text-[#134291]"
+                >
+                  <span>{bannerMessage}</span>
+                  <button
+                    type="button"
+                    onClick={() => setBannerMessage(null)}
+                    aria-label="Dismiss message"
+                    className="rounded p-1 text-[#1A56B8] hover:bg-white/60"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* =============================================================== */}
-            {/* 4-CARD KPI STRIP (First Card Dark ink)                      */}
+            {/* 4-CARD KPI STRIP (All 4 Cards Interactive)                      */}
             {/* =============================================================== */}
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-2xl bg-ink p-5 text-white shadow-soft flex flex-col justify-between space-y-3">
-                <p className="text-xs font-medium text-stone-300">Verified Caretakers</p>
-                <p className="font-serif text-3xl font-semibold tracking-tight">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveSection('VERIFICATIONS');
+                  setStatusFilter('APPROVED');
+                }}
+                className={`flex flex-col justify-between space-y-3 rounded-card bg-gradient-to-br from-[#1A56B8] to-[#154698] p-5 text-left text-white shadow-card transition-all hover:brightness-105 ${
+                  activeSection === 'VERIFICATIONS' && statusFilter === 'APPROVED'
+                    ? 'ring-2 ring-[#1A56B8] ring-offset-2'
+                    : ''
+                }`}
+              >
+                <p className="text-xs font-medium text-blue-100">Verified Caretakers</p>
+                <p className="font-display text-3xl font-semibold tracking-tight">
                   {approvedCount}
-                  <span className="text-base font-normal text-stone-400">
+                  <span className="text-base font-normal text-blue-200">
                     /{caretakers.length}
                   </span>
                 </p>
-                <p className="text-[11px] text-accent flex items-center gap-1">
-                  <ShieldCheck className="h-3.5 w-3.5" /> CID & certificate approved
+                <p className="flex items-center gap-1.5 text-[11px] text-blue-100">
+                  <ShieldCheck className="h-3.5 w-3.5" /> View & manage verified nannies →
                 </p>
-              </div>
+              </button>
 
-              <div className="rounded-2xl border border-border bg-surface p-5 shadow-soft flex flex-col justify-between space-y-3">
-                <p className="text-xs font-medium text-fg-muted">Registered Parents</p>
-                <p className="font-serif text-3xl font-semibold text-fg">
-                  {stats.totalParents}
+              <button
+                type="button"
+                onClick={() => setActiveSection('PARENTS')}
+                className={`flex flex-col justify-between space-y-3 rounded-card border p-5 text-left transition-all ${
+                  activeSection === 'PARENTS'
+                    ? 'border-[#1A56B8] bg-[#E6EFFC] ring-2 ring-[#1A56B8]/20'
+                    : 'border-[#E2E8F4] bg-[#F3F7FD] hover:border-[#1A56B8]/50 hover:bg-[#EBF2FC]'
+                }`}
+              >
+                <p className="text-xs font-medium text-slate-500">Registered Parents</p>
+                <p className="font-display text-3xl font-semibold text-slate-900">
+                  {parents.length || stats.totalParents}
                 </p>
-                <p className="text-[11px] text-fg-muted flex items-center gap-1">
-                  <Users className="h-3.5 w-3.5 text-primary" /> Active family households
+                <p className="flex items-center gap-1.5 text-[11px] font-medium text-[#1A56B8]">
+                  <Users className="h-3.5 w-3.5" /> View & manage households →
                 </p>
-              </div>
+              </button>
 
-              <div className="rounded-2xl border border-border bg-surface p-5 shadow-soft flex flex-col justify-between space-y-3">
-                <p className="text-xs font-medium text-fg-muted">Pending Verifications</p>
-                <p className="font-serif text-3xl font-semibold text-fg">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveSection('VERIFICATIONS');
+                  setStatusFilter('PENDING');
+                }}
+                className={`flex flex-col justify-between space-y-3 rounded-card border p-5 text-left transition-all ${
+                  activeSection === 'VERIFICATIONS' && statusFilter === 'PENDING'
+                    ? 'border-amber-400 bg-amber-50/70 ring-2 ring-amber-400/25'
+                    : 'border-[#E2E8F4] bg-[#F3F7FD] hover:border-amber-300 hover:bg-amber-50/40'
+                }`}
+              >
+                <p className="text-xs font-medium text-slate-500">Pending Verifications</p>
+                <p className="font-display text-3xl font-semibold text-slate-900">
                   {pendingCount}
                 </p>
-                <p className="text-[11px] text-warning flex items-center gap-1 font-medium">
+                <p className="flex items-center gap-1.5 text-[11px] font-medium text-amber-600">
                   <Clock className="h-3.5 w-3.5" /> Needs document review
                 </p>
-              </div>
+              </button>
 
-              <div className="rounded-2xl border border-border bg-surface p-5 shadow-soft flex flex-col justify-between space-y-3">
-                <p className="text-xs font-medium text-fg-muted">Active 6+ Mo Contracts</p>
-                <p className="font-serif text-3xl font-semibold text-fg">
+              <button
+                type="button"
+                onClick={() => setActiveSection('CONTRACTS')}
+                className={`flex flex-col justify-between space-y-3 rounded-card border p-5 text-left transition-all ${
+                  activeSection === 'CONTRACTS'
+                    ? 'border-[#1A56B8] bg-[#E6EFFC] ring-2 ring-[#1A56B8]/20'
+                    : 'border-[#E2E8F4] bg-[#F3F7FD] hover:border-[#1A56B8]/50 hover:bg-[#EBF2FC]'
+                }`}
+              >
+                <p className="text-xs font-medium text-slate-500">Active 6+ Mo Contracts</p>
+                <p className="font-display text-3xl font-semibold text-slate-900">
                   {stats.activeContracts}
                 </p>
-                <p className="text-[11px] text-primary flex items-center gap-1 font-medium">
+                <p className="flex items-center gap-1.5 text-[11px] font-medium text-[#1A56B8]">
                   <Sparkles className="h-3.5 w-3.5" /> Structured placements
                 </p>
-              </div>
+              </button>
             </div>
 
-            {/* =============================================================== */}
-            {/* ANALYTICS GRAPH SECTION (Visible on OVERVIEW & ANALYTICS)       */}
-            {/* =============================================================== */}
-            {(activeSection === 'OVERVIEW' || activeSection === 'ANALYTICS') && (
-              <div className="grid gap-6 lg:grid-cols-12">
-                {/* Left 7 Cols: Caretakers by Dzongkhag Pill-Bar Chart */}
-                <div className="lg:col-span-7 rounded-2xl border border-border bg-surface p-6 shadow-soft flex flex-col justify-between space-y-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h2 className="font-serif text-lg font-semibold text-fg">
-                        Caretaker Supply by Dzongkhag
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeSection}
+                initial={{ opacity: 0, x: 14 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -14 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+                className="space-y-6"
+              >
+                {/* =============================================================== */}
+                {/* REGISTERED PARENTS DIRECTORY TABLE                              */}
+                {/* =============================================================== */}
+                {activeSection === 'PARENTS' && (
+                  <div className="overflow-hidden rounded-card border border-[#E2E8F4] bg-white shadow-soft">
+                    <div className="flex flex-col gap-3 border-b border-[#E8EFFB] p-5 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h2 className="font-display text-xl font-semibold text-slate-900">
+                          Registered Parent Accounts ({filteredParents.length})
+                        </h2>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          Inspect family household profiles, child counts, contract activity, or remove inactive accounts.
+                        </p>
+                      </div>
+
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full"
+                        onClick={() => setActiveSection('OVERVIEW')}
+                      >
+                        Back to Dashboard
+                      </Button>
+                    </div>
+
+                    <div className="w-full overflow-x-auto">
+                      <table className="w-full min-w-[960px] border-collapse text-left">
+                        <thead>
+                          <tr className="border-b border-[#E8EFFB] bg-[#F3F7FD] text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                            <th className="py-3.5 pl-6 pr-4">Parent / Household</th>
+                            <th className="whitespace-nowrap px-4 py-3.5">Contact</th>
+                            <th className="whitespace-nowrap px-4 py-3.5">Dzongkhag</th>
+                            <th className="whitespace-nowrap px-4 py-3.5">Children</th>
+                            <th className="whitespace-nowrap px-4 py-3.5">Contracts</th>
+                            <th className="whitespace-nowrap px-4 py-3.5">Joined</th>
+                            <th className="whitespace-nowrap py-3.5 pl-4 pr-6 text-right">
+                              Actions
+                            </th>
+                          </tr>
+                        </thead>
+
+                        <tbody className="divide-y divide-[#E8EFFB] text-sm">
+                          {loadingData ? (
+                            <tr>
+                              <td
+                                colSpan={7}
+                                className="py-10 text-center text-xs text-slate-500"
+                              >
+                                Loading registered parents...
+                              </td>
+                            </tr>
+                          ) : filteredParents.length === 0 ? (
+                            <tr>
+                              <td
+                                colSpan={7}
+                                className="py-10 text-center text-xs text-slate-500"
+                              >
+                                No registered parents match your search.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredParents.map((p) => {
+                              const isBusy = actionBusyId === p.id;
+                              return (
+                                <tr
+                                  key={p.id}
+                                  className="align-middle transition-colors hover:bg-[#F3F7FD]/60"
+                                >
+                                  {/* Parent */}
+                                  <td className="py-4 pl-6 pr-4">
+                                    <div className="flex min-w-[200px] items-center gap-3">
+                                      {p.avatarUrl ? (
+                                        <img
+                                          src={p.avatarUrl}
+                                          alt={p.fullName}
+                                          className="h-9 w-9 shrink-0 rounded-xl border border-[#E2E8F4] object-cover"
+                                        />
+                                      ) : (
+                                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#E6EFFC] text-xs font-semibold text-[#1A56B8]">
+                                          {getInitials(p.fullName)}
+                                        </div>
+                                      )}
+                                      <div className="min-w-0">
+                                        <p className="truncate font-semibold text-slate-900">
+                                          {p.fullName}
+                                        </p>
+                                        <p className="truncate text-xs text-slate-500">
+                                          ID: {p.id.slice(0, 8)}…
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </td>
+
+                                  {/* Contact */}
+                                  <td className="px-4 py-4">
+                                    <p className="text-xs font-medium text-slate-800">{p.email}</p>
+                                    <p className="mt-0.5 text-xs text-slate-500">
+                                      {p.phone || 'No phone'}
+                                    </p>
+                                  </td>
+
+                                  {/* Dzongkhag */}
+                                  <td className="whitespace-nowrap px-4 py-4 text-xs font-medium text-slate-800">
+                                    {p.dzongkhag || 'Not set'}
+                                  </td>
+
+                                  {/* Children */}
+                                  <td className="whitespace-nowrap px-4 py-4">
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-[#F3F7FD] px-2.5 py-1 text-xs font-semibold text-slate-700">
+                                      <Baby className="h-3.5 w-3.5 text-[#1A56B8]" />
+                                      {p.childrenCount}
+                                    </span>
+                                  </td>
+
+                                  {/* Contracts */}
+                                  <td className="whitespace-nowrap px-4 py-4">
+                                    <span className="inline-flex items-center rounded-full border border-[#BFD3F5] bg-[#E6EFFC] px-2.5 py-0.5 text-xs font-semibold text-[#1A56B8]">
+                                      {p.activeContractsCount} active / {p.totalBookingsCount} total
+                                    </span>
+                                  </td>
+
+                                  {/* Joined */}
+                                  <td className="whitespace-nowrap px-4 py-4 text-xs text-slate-500">
+                                    {p.createdAt ? formatDisplayDate(p.createdAt) : '—'}
+                                  </td>
+
+                                  {/* Actions */}
+                                  <td className="whitespace-nowrap py-4 pl-4 pr-6 text-right">
+                                    <div className="inline-flex items-center justify-end gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="rounded-full border-[#C7D9F7] bg-[#F3F7FD] text-[#1A56B8] hover:bg-[#E6EFFC]"
+                                        onClick={() => setViewModalParent(p)}
+                                      >
+                                        <Eye className="h-3.5 w-3.5" />
+                                        View
+                                      </Button>
+
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="rounded-full"
+                                        disabled={isBusy}
+                                        onClick={() => setDeleteModalParent(p)}
+                                        title={`Delete ${p.fullName}`}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5 text-danger" />
+                                        Delete
+                                      </Button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* =============================================================== */}
+                {/* ANALYTICS GRAPH SECTION (Visible on OVERVIEW & ANALYTICS)       */}
+                {/* =============================================================== */}
+                {(activeSection === 'OVERVIEW' || activeSection === 'ANALYTICS') && (
+                  <div className="grid gap-6 lg:grid-cols-12">
+                    {/* Left 7 Cols: Caretakers by Dzongkhag Pill-Bar Chart */}
+                    <div className="flex flex-col justify-between space-y-6 rounded-card border border-[#E2E8F4] bg-white p-6 shadow-soft lg:col-span-7">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <h2 className="font-display text-lg font-semibold text-slate-900">
+                            Caretaker Supply by Dzongkhag
+                          </h2>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            Regional distribution of registered childcare providers across Bhutan
+                          </p>
+                        </div>
+                        <span className="inline-flex items-center gap-1 rounded-full border border-[#BFD3F5] bg-[#E6EFFC] px-3 py-1 text-xs font-semibold text-[#1A56B8]">
+                          <MapPin className="h-3.5 w-3.5" /> {dzongkhagChartData.length} Regions
+                        </span>
+                      </div>
+
+                      {dzongkhagChartData.length === 0 ? (
+                        <p className="py-8 text-center text-xs text-slate-500">
+                          No caretaker regional data available yet.
+                        </p>
+                      ) : (
+                        <div className="grid h-44 grid-cols-6 items-end gap-3 pt-4">
+                          {dzongkhagChartData.map((bar, idx) => {
+                            const isTop = idx === 0;
+                            return (
+                              <div
+                                key={bar.name}
+                                className="flex h-full flex-col items-center justify-end gap-2"
+                              >
+                                <span className="text-[11px] font-semibold text-slate-800">
+                                  {bar.count}
+                                </span>
+                                <div className="flex w-full flex-1 items-end justify-center">
+                                  <motion.div
+                                    initial={{ height: 0 }}
+                                    animate={{ height: `${bar.pct}%` }}
+                                    transition={{ duration: 0.6, ease: 'easeOut', delay: idx * 0.05 }}
+                                    className={`w-full max-w-[38px] rounded-full ${
+                                      isTop ? 'bg-[#1A56B8]' : 'bg-[#7FA6E8]'
+                                    }`}
+                                  />
+                                </div>
+                                <span
+                                  title={bar.name}
+                                  className="w-full truncate text-center text-[11px] font-medium text-slate-500"
+                                >
+                                  {bar.name.split(' ')[0]}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right 5 Cols: Verification & Platform Health Breakdown */}
+                    <div className="flex flex-col justify-between space-y-5 rounded-card border border-[#E2E8F4] bg-white p-6 shadow-soft lg:col-span-5">
+                      <div>
+                        <h2 className="font-display text-lg font-semibold text-slate-900">
+                          Credential Screening Breakdown
+                        </h2>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          Applicant verification status across {caretakers.length} total caretakers
+                        </p>
+                      </div>
+
+                      <div className="space-y-4">
+                        {[
+                          {
+                            label: 'Approved & Live',
+                            count: approvedCount,
+                            total: Math.max(1, caretakers.length),
+                            barColor: 'bg-[#1A56B8]',
+                          },
+                          {
+                            label: 'Pending Document Review',
+                            count: pendingCount,
+                            total: Math.max(1, caretakers.length),
+                            barColor: 'bg-amber-500',
+                          },
+                          {
+                            label: 'Rejected Applications',
+                            count: rejectedCount,
+                            total: Math.max(1, caretakers.length),
+                            barColor: 'bg-rose-500',
+                          },
+                        ].map((item) => {
+                          const pct = Math.round((item.count / item.total) * 100);
+                          return (
+                            <div key={item.label} className="space-y-1.5">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-medium text-slate-800">{item.label}</span>
+                                <span className="font-semibold text-slate-500">
+                                  {item.count} ({pct}%)
+                                </span>
+                              </div>
+                              <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#E8EFFB]">
+                                <motion.div
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${pct}%` }}
+                                  transition={{ duration: 0.65, ease: 'easeOut' }}
+                                  className={`h-full rounded-full ${item.barColor}`}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex items-center justify-between rounded-xl border border-[#DCE6F7] bg-[#F3F7FD] p-3.5 text-xs">
+                        <span className="text-slate-500">Parent-to-Caretaker Ratio</span>
+                        <span className="font-semibold text-[#1A56B8]">
+                          {parents.length || stats.totalParents} Families : {approvedCount} Verified Nannies
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* =============================================================== */}
+                {/* CARETAKER VERIFICATION & DIRECTORY QUEUE TABLE                  */}
+                {/* =============================================================== */}
+                {(activeSection === 'OVERVIEW' || activeSection === 'VERIFICATIONS') && (
+                  <div className="overflow-hidden rounded-card border border-[#E2E8F4] bg-white shadow-soft">
+                    <div className="flex flex-col gap-3 border-b border-[#E8EFFB] p-5 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h2 className="font-display text-xl font-semibold text-slate-900">
+                          {statusFilter === 'APPROVED'
+                            ? `Verified Caretaker Accounts (${filteredCaretakers.length})`
+                            : 'Caretaker Verification & Directory'}
+                        </h2>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          Inspect Citizenship ID and Institution Certificate documents, approve listings, or remove caretaker accounts.
+                        </p>
+                      </div>
+
+                      {/* Status Filter Pills */}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {(
+                          [
+                            { id: 'ALL', label: `All (${caretakers.length})` },
+                            { id: 'PENDING', label: `Pending (${pendingCount})` },
+                            { id: 'APPROVED', label: `Verified (${approvedCount})` },
+                            { id: 'REJECTED', label: `Rejected (${rejectedCount})` },
+                          ] as { id: VerificationFilter; label: string }[]
+                        ).map((pill) => {
+                          const active = statusFilter === pill.id;
+                          return (
+                            <button
+                              key={pill.id}
+                              type="button"
+                              onClick={() => setStatusFilter(pill.id)}
+                              className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-all ${
+                                active
+                                  ? 'bg-[#1A56B8] text-white shadow-soft'
+                                  : 'border border-[#E2E8F4] bg-[#F3F7FD] text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              {pill.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="w-full overflow-x-auto">
+                      <table className="w-full min-w-[1040px] border-collapse text-left">
+                        <thead>
+                          <tr className="border-b border-[#E8EFFB] bg-[#F3F7FD] text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                            <th className="py-3.5 pl-6 pr-4">Caretaker</th>
+                            <th className="whitespace-nowrap px-4 py-3.5">Dzongkhag</th>
+                            <th className="px-4 py-3.5">Qualifications & Rate</th>
+                            <th className="whitespace-nowrap px-4 py-3.5">CID & Certificate</th>
+                            <th className="whitespace-nowrap px-4 py-3.5">Status</th>
+                            <th className="whitespace-nowrap py-3.5 pl-4 pr-6 text-right">
+                              Actions
+                            </th>
+                          </tr>
+                        </thead>
+
+                        <tbody className="divide-y divide-[#E8EFFB] text-sm">
+                          {loadingData ? (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                className="py-10 text-center text-xs text-slate-500"
+                              >
+                                Loading caretaker accounts...
+                              </td>
+                            </tr>
+                          ) : filteredCaretakers.length === 0 ? (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                className="py-10 text-center text-xs text-slate-500"
+                              >
+                                No caretakers match the selected filter.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredCaretakers.map((c) => {
+                              const isBusy = actionBusyId === c.id;
+                              return (
+                                <tr
+                                  key={c.id}
+                                  className="align-middle transition-colors hover:bg-[#F3F7FD]/60"
+                                >
+                                  {/* Applicant */}
+                                  <td className="py-4 pl-6 pr-4">
+                                    <div className="flex min-w-[210px] items-center gap-3">
+                                      {c.avatarUrl ? (
+                                        <img
+                                          src={c.avatarUrl}
+                                          alt={c.fullName}
+                                          className="h-9 w-9 shrink-0 rounded-xl border border-[#E2E8F4] object-cover"
+                                        />
+                                      ) : (
+                                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#E6EFFC] text-xs font-semibold text-[#1A56B8]">
+                                          {getInitials(c.fullName)}
+                                        </div>
+                                      )}
+                                      <div className="min-w-0">
+                                        <p className="truncate font-semibold text-slate-900">
+                                          {c.fullName}
+                                        </p>
+                                        <p className="truncate text-xs text-slate-500">
+                                          {c.email} • {c.phone}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </td>
+
+                                  {/* Dzongkhag */}
+                                  <td className="whitespace-nowrap px-4 py-4 text-xs font-medium text-slate-800">
+                                    {c.dzongkhag}
+                                  </td>
+
+                                  {/* Qualifications & Rate */}
+                                  <td className="max-w-[260px] px-4 py-4">
+                                    <p
+                                      title={c.qualifications}
+                                      className="truncate text-xs font-medium text-slate-800"
+                                    >
+                                      {c.qualifications}
+                                    </p>
+                                    <p className="mt-0.5 whitespace-nowrap text-xs text-slate-500">
+                                      {c.yearsExperience} yrs •{' '}
+                                      <span className="font-semibold text-[#1A56B8]">
+                                        {formatBtn(c.monthlyRateBtn)}/mo
+                                      </span>
+                                    </p>
+                                  </td>
+
+                                  {/* View CID & Certificate Button */}
+                                  <td className="whitespace-nowrap px-4 py-4">
+                                    <button
+                                      type="button"
+                                      onClick={() => setCidModalCaretaker(c)}
+                                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#C7D9F7] bg-[#F3F7FD] px-3 py-1.5 text-xs font-medium text-[#1A56B8] transition-colors hover:bg-[#E6EFFC]"
+                                    >
+                                      <FileText className="h-3.5 w-3.5" />
+                                      View Account & Docs
+                                    </button>
+                                  </td>
+
+                                  {/* Status */}
+                                  <td className="whitespace-nowrap px-4 py-4">
+                                    <VerificationPill status={c.verificationStatus} />
+                                  </td>
+
+                                  {/* Actions */}
+                                  <td className="whitespace-nowrap py-4 pl-4 pr-6 text-right">
+                                    <div className="inline-flex items-center justify-end gap-2">
+                                      {c.verificationStatus !== 'APPROVED' && (
+                                        <Button
+                                          size="sm"
+                                          className="rounded-full bg-[#1A56B8] text-white hover:bg-[#154698] disabled:opacity-40"
+                                          disabled={isBusy}
+                                          onClick={() =>
+                                            handleVerifyDecision(c.id, 'APPROVED')
+                                          }
+                                        >
+                                          <CheckCircle2 className="h-3.5 w-3.5" />
+                                          Approve
+                                        </Button>
+                                      )}
+
+                                      {c.verificationStatus !== 'REJECTED' && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="rounded-full"
+                                          disabled={isBusy}
+                                          onClick={() => {
+                                            setRejectModalCaretaker(c);
+                                            setRejectionReason(c.rejectionReason || '');
+                                          }}
+                                        >
+                                          <XCircle className="h-3.5 w-3.5 text-danger" />
+                                          {c.verificationStatus === 'APPROVED' ? 'Revoke' : 'Reject'}
+                                        </Button>
+                                      )}
+
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="rounded-full"
+                                        disabled={isBusy}
+                                        onClick={() => setDeleteModalCaretaker(c)}
+                                        title={`Delete ${c.fullName}`}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5 text-danger" />
+                                        Delete
+                                      </Button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* =============================================================== */}
+                {/* 6-MONTH CONTRACTS OVERVIEW TABLE (When Contracts Tab Selected)  */}
+                {/* =============================================================== */}
+                {activeSection === 'CONTRACTS' && (
+                  <div className="overflow-hidden rounded-card border border-[#E2E8F4] bg-white shadow-soft">
+                    <div className="border-b border-[#E8EFFB] p-5">
+                      <h2 className="font-display text-xl font-semibold text-slate-900">
+                        Platform 6-Month Childcare Contracts
                       </h2>
-                      <p className="text-xs text-fg-muted mt-0.5">
-                        Regional distribution of registered childcare providers across Bhutan
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        Audit all active, pending, and completed childcare agreements.
                       </p>
                     </div>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                      <MapPin className="h-3.5 w-3.5" /> {dzongkhagChartData.length} Regions
-                    </span>
-                  </div>
 
-                  {dzongkhagChartData.length === 0 ? (
-                    <p className="text-xs text-fg-muted py-8 text-center">
-                      No caretaker regional data available yet.
-                    </p>
-                  ) : (
-                    <div className="grid grid-cols-6 items-end gap-3 pt-4 h-44">
-                      {dzongkhagChartData.map((bar, idx) => {
-                        const isTop = idx === 0;
-                        return (
-                          <div
-                            key={bar.name}
-                            className="flex h-full flex-col items-center justify-end gap-2"
-                          >
-                            <span className="text-[11px] font-semibold text-fg">
-                              {bar.count}
-                            </span>
-                            <div className="flex w-full flex-1 items-end justify-center">
-                              <div
-                                style={{ height: `${bar.pct}%` }}
-                                className={`w-full max-w-[38px] rounded-full transition-all ${
-                                  isTop ? 'bg-ink' : 'bg-primary/75'
-                                }`}
-                              />
-                            </div>
-                            <span
-                              title={bar.name}
-                              className="w-full truncate text-center text-[11px] font-medium text-fg-muted"
-                            >
-                              {bar.name.split(' ')[0]}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Right 5 Cols: Verification & Platform Health Breakdown */}
-                <div className="lg:col-span-5 rounded-2xl border border-border bg-surface p-6 shadow-soft flex flex-col justify-between space-y-5">
-                  <div>
-                    <h2 className="font-serif text-lg font-semibold text-fg">
-                      Credential Screening Breakdown
-                    </h2>
-                    <p className="text-xs text-fg-muted mt-0.5">
-                      Applicant verification status across {caretakers.length} total caretakers
-                    </p>
-                  </div>
-
-                  <div className="space-y-4">
-                    {[
-                      {
-                        label: 'Approved & Live',
-                        count: approvedCount,
-                        total: Math.max(1, caretakers.length),
-                        barColor: 'bg-primary',
-                      },
-                      {
-                        label: 'Pending Document Review',
-                        count: pendingCount,
-                        total: Math.max(1, caretakers.length),
-                        barColor: 'bg-warning',
-                      },
-                      {
-                        label: 'Rejected Applications',
-                        count: rejectedCount,
-                        total: Math.max(1, caretakers.length),
-                        barColor: 'bg-danger/80',
-                      },
-                    ].map((item) => {
-                      const pct = Math.round((item.count / item.total) * 100);
-                      return (
-                        <div key={item.label} className="space-y-1.5">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-medium text-fg">{item.label}</span>
-                            <span className="font-semibold text-fg-muted">
-                              {item.count} ({pct}%)
-                            </span>
-                          </div>
-                          <div className="h-2.5 w-full overflow-hidden rounded-full bg-surface-subtle">
-                            <div
-                              style={{ width: `${pct}%` }}
-                              className={`h-full rounded-full ${item.barColor} transition-all`}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="rounded-xl bg-surface-subtle/80 p-3.5 text-xs flex items-center justify-between">
-                    <span className="text-fg-muted">Parent-to-Caretaker Ratio</span>
-                    <span className="font-semibold text-fg">
-                      {stats.totalParents} Families : {approvedCount} Verified Nannies
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* =============================================================== */}
-            {/* CARETAKER VERIFICATION QUEUE TABLE                              */}
-            {/* =============================================================== */}
-            {(activeSection === 'OVERVIEW' || activeSection === 'VERIFICATIONS') && (
-              <div className="rounded-2xl border border-border bg-surface shadow-soft overflow-hidden">
-                <div className="flex flex-col gap-3 border-b border-border p-5 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h2 className="font-serif text-xl font-semibold text-fg">
-                      Caretaker Verification Queue
-                    </h2>
-                    <p className="text-xs text-fg-muted mt-0.5">
-                      Inspect Citizenship ID and Institution Certificate documents before approving listings.
-                    </p>
-                  </div>
-
-                  {/* Status Filter Pills */}
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {(
-                      [
-                        { id: 'ALL', label: `All (${caretakers.length})` },
-                        { id: 'PENDING', label: `Pending (${pendingCount})` },
-                        { id: 'APPROVED', label: `Approved (${approvedCount})` },
-                        { id: 'REJECTED', label: `Rejected (${rejectedCount})` },
-                      ] as { id: VerificationFilter; label: string }[]
-                    ).map((pill) => {
-                      const active = statusFilter === pill.id;
-                      return (
-                        <button
-                          key={pill.id}
-                          type="button"
-                          onClick={() => setStatusFilter(pill.id)}
-                          className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-all ${
-                            active
-                              ? 'bg-ink text-white'
-                              : 'border border-border bg-surface-subtle/60 text-fg-muted hover:text-fg'
-                          }`}
-                        >
-                          {pill.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Responsive Horizontal Scroll Wrapper Prevents Any Overlap */}
-                <div className="w-full overflow-x-auto">
-                  <table className="w-full min-w-[1040px] border-collapse text-left">
-                    <thead>
-                      <tr className="border-b border-border bg-surface-subtle/60 text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
-                        <th className="py-3.5 pl-6 pr-4">Applicant</th>
-                        <th className="px-4 py-3.5 whitespace-nowrap">Dzongkhag</th>
-                        <th className="px-4 py-3.5">Qualifications & Rate</th>
-                        <th className="px-4 py-3.5 whitespace-nowrap">CID & Certificate</th>
-                        <th className="px-4 py-3.5 whitespace-nowrap">Status</th>
-                        <th className="py-3.5 pl-4 pr-6 text-right whitespace-nowrap">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-
-                    <tbody className="divide-y divide-border text-sm">
-                      {loadingData ? (
-                        <tr>
-                          <td
-                            colSpan={6}
-                            className="py-10 text-center text-xs text-fg-muted"
-                          >
-                            Loading caretaker applications...
-                          </td>
-                        </tr>
-                      ) : filteredCaretakers.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={6}
-                            className="py-10 text-center text-xs text-fg-muted"
-                          >
-                            No caretakers match the selected filter.
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredCaretakers.map((c) => {
-                          const isBusy = actionBusyId === c.id;
-                          return (
-                            <tr
-                              key={c.id}
-                              className="hover:bg-surface-subtle/40 transition-colors align-middle"
-                            >
-                              {/* Applicant */}
-                              <td className="py-4 pl-6 pr-4">
-                                <div className="flex items-center gap-3 min-w-[210px]">
-                                  {c.avatarUrl ? (
-                                    <img
-                                      src={c.avatarUrl}
-                                      alt={c.fullName}
-                                      className="h-9 w-9 shrink-0 rounded-xl object-cover border border-border"
-                                    />
-                                  ) : (
-                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-xs font-semibold text-primary">
-                                      {getInitials(c.fullName)}
-                                    </div>
-                                  )}
-                                  <div className="min-w-0">
-                                    <p className="font-semibold text-fg truncate">
-                                      {c.fullName}
-                                    </p>
-                                    <p className="text-xs text-fg-muted truncate">
-                                      {c.email} • {c.phone}
-                                    </p>
-                                  </div>
-                                </div>
+                    <div className="w-full overflow-x-auto">
+                      <table className="w-full min-w-[880px] border-collapse text-left">
+                        <thead>
+                          <tr className="border-b border-[#E8EFFB] bg-[#F3F7FD] text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                            <th className="py-3.5 pl-6 pr-4">Family / Parent</th>
+                            <th className="px-4 py-3.5">Caretaker</th>
+                            <th className="whitespace-nowrap px-4 py-3.5">Duration</th>
+                            <th className="whitespace-nowrap px-4 py-3.5">Monthly Rate</th>
+                            <th className="whitespace-nowrap px-4 py-3.5">Status</th>
+                            <th className="whitespace-nowrap py-3.5 pl-4 pr-6 text-right">
+                              Actions
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E8EFFB] text-xs">
+                          {bookings.length === 0 ? (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                className="py-10 text-center text-slate-500"
+                              >
+                                No contracts recorded yet.
                               </td>
-
-                              {/* Dzongkhag */}
-                              <td className="px-4 py-4 text-xs font-medium text-fg whitespace-nowrap">
-                                {c.dzongkhag}
-                              </td>
-
-                              {/* Qualifications & Rate */}
-                              <td className="px-4 py-4 max-w-[260px]">
-                                <p
-                                  title={c.qualifications}
-                                  className="text-xs font-medium text-fg truncate"
-                                >
-                                  {c.qualifications}
-                                </p>
-                                <p className="text-xs text-fg-muted mt-0.5 whitespace-nowrap">
-                                  {c.yearsExperience} yrs •{' '}
-                                  {formatBtn(c.monthlyRateBtn)}/mo
-                                </p>
-                              </td>
-
-                              {/* View CID & Certificate Button */}
-                              <td className="px-4 py-4 whitespace-nowrap">
-                                <button
-                                  type="button"
-                                  onClick={() => setCidModalCaretaker(c)}
-                                  className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-surface-subtle/70 px-3 py-1.5 text-xs font-medium text-fg hover:border-primary/40 hover:text-primary transition-colors"
-                                >
-                                  <FileText className="h-3.5 w-3.5 text-primary" />
-                                  View Docs
-                                </button>
-                              </td>
-
-                              {/* Status */}
-                              <td className="px-4 py-4 whitespace-nowrap">
-                                <Badge
-                                  variant={
-                                    c.verificationStatus === 'APPROVED'
-                                      ? 'verified'
-                                      : c.verificationStatus === 'REJECTED'
-                                      ? 'rejected'
-                                      : 'pending'
-                                  }
-                                >
-                                  {c.verificationStatus}
-                                </Badge>
-                              </td>
-
-                              {/* Actions */}
-                              <td className="py-4 pl-4 pr-6 text-right whitespace-nowrap">
-                                <div className="inline-flex items-center justify-end gap-2">
+                            </tr>
+                          ) : (
+                            bookings.map((b: any) => (
+                              <tr key={b.id} className="transition-colors hover:bg-[#F3F7FD]/60">
+                                <td className="py-4 pl-6 pr-4 font-semibold text-slate-900">
+                                  {b.parentName || b.parent_name || 'Parent'}
+                                </td>
+                                <td className="px-4 py-4 text-slate-800">
+                                  {b.caretakerName || b.caretaker_name || 'Caretaker'}
+                                </td>
+                                <td className="whitespace-nowrap px-4 py-4 text-slate-500">
+                                  {b.durationMonths || b.duration_months || 6} Months (
+                                  {b.startDate ? formatDisplayDate(b.startDate) : 'TBD'})
+                                </td>
+                                <td className="whitespace-nowrap px-4 py-4">
+                                  <span className="inline-flex items-center rounded-lg bg-[#E6EFFC] px-2.5 py-1 font-bold text-[#1A56B8]">
+                                    {formatBtn(
+                                      Number(
+                                        b.agreedMonthlyRateBtn ?? b.monthlyRateBtn ?? 0
+                                      )
+                                    )}
+                                    /mo
+                                  </span>
+                                </td>
+                                <td className="whitespace-nowrap px-4 py-4">
+                                  <VerificationPill status={b.status} />
+                                </td>
+                                <td className="whitespace-nowrap py-4 pl-4 pr-6 text-right">
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    disabled={isBusy || c.verificationStatus === 'APPROVED'}
-                                    onClick={() =>
-                                      handleVerifyDecision(c.id, 'APPROVED')
-                                    }
-                                  >
-                                    <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
-                                    Approve
-                                  </Button>
-
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={isBusy || c.verificationStatus === 'REJECTED'}
-                                    onClick={() => {
-                                      setRejectModalCaretaker(c);
-                                      setRejectionReason(c.rejectionReason || '');
-                                    }}
-                                  >
-                                    <XCircle className="h-3.5 w-3.5 text-danger" />
-                                    Reject
-                                  </Button>
-
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={isBusy}
-                                    onClick={() => setDeleteModalCaretaker(c)}
-                                    title={`Delete ${c.fullName}`}
+                                    className="rounded-full"
+                                    disabled={actionBusyId === b.id}
+                                    onClick={() => setDeleteModalBooking(b)}
                                   >
                                     <Trash2 className="h-3.5 w-3.5 text-danger" />
                                     Delete
                                   </Button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* =============================================================== */}
-            {/* 6-MONTH CONTRACTS OVERVIEW TABLE (When Contracts Tab Selected)  */}
-            {/* =============================================================== */}
-            {activeSection === 'CONTRACTS' && (
-              <div className="rounded-2xl border border-border bg-surface shadow-soft overflow-hidden">
-                <div className="border-b border-border p-5">
-                  <h2 className="font-serif text-xl font-semibold text-fg">
-                    Platform 6-Month Childcare Contracts
-                  </h2>
-                  <p className="text-xs text-fg-muted mt-0.5">
-                    Audit all active, pending, and completed childcare agreements.
-                  </p>
-                </div>
-
-                <div className="w-full overflow-x-auto">
-                  <table className="w-full min-w-[880px] border-collapse text-left">
-                    <thead>
-                      <tr className="border-b border-border bg-surface-subtle/60 text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
-                        <th className="py-3.5 pl-6 pr-4">Family / Parent</th>
-                        <th className="px-4 py-3.5">Caretaker</th>
-                        <th className="px-4 py-3.5 whitespace-nowrap">Duration</th>
-                        <th className="px-4 py-3.5 whitespace-nowrap">Monthly Rate</th>
-                        <th className="px-4 py-3.5 whitespace-nowrap">Status</th>
-                        <th className="py-3.5 pl-4 pr-6 text-right whitespace-nowrap">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border text-xs">
-                      {bookings.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={6}
-                            className="py-10 text-center text-fg-muted"
-                          >
-                            No contracts recorded yet.
-                          </td>
-                        </tr>
-                      ) : (
-                        bookings.map((b: any) => (
-                          <tr key={b.id} className="hover:bg-surface-subtle/40">
-                            <td className="py-4 pl-6 pr-4 font-semibold text-fg">
-                              {b.parentName || b.parent_name || 'Parent'}
-                            </td>
-                            <td className="px-4 py-4 text-fg">
-                              {b.caretakerName || b.caretaker_name || 'Caretaker'}
-                            </td>
-                            <td className="px-4 py-4 text-fg-muted whitespace-nowrap">
-                              {b.durationMonths || b.duration_months || 6} Months (
-                              {b.startDate ? formatDisplayDate(b.startDate) : 'TBD'})
-                            </td>
-                            <td className="px-4 py-4 font-semibold text-fg whitespace-nowrap">
-                              {formatBtn(
-                                Number(
-                                  b.agreedMonthlyRateBtn ?? b.monthlyRateBtn ?? 0
-                                )
-                              )}
-                              /mo
-                            </td>
-                            <td className="px-4 py-4 whitespace-nowrap">
-                              <Badge
-                                variant={
-                                  ['CONFIRMED', 'ACTIVE', 'ACCEPTED'].includes(b.status)
-                                    ? 'verified'
-                                    : b.status === 'REJECTED' || b.status === 'CANCELLED'
-                                    ? 'rejected'
-                                    : 'pending'
-                                }
-                              >
-                                {b.status}
-                              </Badge>
-                            </td>
-                            <td className="py-4 pl-4 pr-6 text-right whitespace-nowrap">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={actionBusyId === b.id}
-                                onClick={() => setDeleteModalBooking(b)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5 text-danger" />
-                                Delete
-                              </Button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            </AnimatePresence>
           </div>
         </main>
       </div>
+
+      {/* ================================================================= */}
+      {/* VIEW PARENT ACCOUNT MODAL                                         */}
+      {/* ================================================================= */}
+      <Modal
+        isOpen={Boolean(viewModalParent)}
+        onClose={() => setViewModalParent(null)}
+        title={`Parent Account — ${viewModalParent?.fullName || ''}`}
+        subtitle={`Registered Family Household • ${viewModalParent?.dzongkhag || 'Bhutan'}`}
+      >
+        {viewModalParent && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3.5 rounded-xl bg-[#F3F7FD] p-4">
+              {viewModalParent.avatarUrl ? (
+                <img
+                  src={viewModalParent.avatarUrl}
+                  alt={viewModalParent.fullName}
+                  className="h-14 w-14 shrink-0 rounded-2xl border border-[#E2E8F4] object-cover"
+                />
+              ) : (
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#E6EFFC] text-base font-bold text-[#1A56B8]">
+                  {getInitials(viewModalParent.fullName)}
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="font-display text-lg font-semibold text-slate-900">
+                  {viewModalParent.fullName}
+                </p>
+                <p className="text-xs text-slate-500">
+                  Joined {viewModalParent.createdAt ? formatDisplayDate(viewModalParent.createdAt) : '—'}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-[#E2E8F4] p-3.5 text-xs">
+                <p className="flex items-center gap-1.5 text-slate-500">
+                  <Mail className="h-3.5 w-3.5 text-[#1A56B8]" /> Email Address
+                </p>
+                <p className="mt-1 font-semibold text-slate-900">{viewModalParent.email}</p>
+              </div>
+
+              <div className="rounded-xl border border-[#E2E8F4] p-3.5 text-xs">
+                <p className="flex items-center gap-1.5 text-slate-500">
+                  <Phone className="h-3.5 w-3.5 text-[#1A56B8]" /> Phone Number
+                </p>
+                <p className="mt-1 font-semibold text-slate-900">
+                  {viewModalParent.phone || 'Not provided'}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-[#E2E8F4] p-3.5 text-xs">
+                <p className="flex items-center gap-1.5 text-slate-500">
+                  <MapPin className="h-3.5 w-3.5 text-[#1A56B8]" /> Location
+                </p>
+                <p className="mt-1 font-semibold text-slate-900">
+                  {viewModalParent.dzongkhag || 'Not specified'}
+                  {viewModalParent.address ? ` • ${viewModalParent.address}` : ''}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-[#E2E8F4] p-3.5 text-xs">
+                <p className="flex items-center gap-1.5 text-slate-500">
+                  <Baby className="h-3.5 w-3.5 text-[#1A56B8]" /> Household Activity
+                </p>
+                <p className="mt-1 font-semibold text-slate-900">
+                  {viewModalParent.childrenCount} Child{viewModalParent.childrenCount === 1 ? '' : 'ren'} •{' '}
+                  {viewModalParent.activeContractsCount} Active Contract{viewModalParent.activeContractsCount === 1 ? '' : 's'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#E8EFFB] pt-3">
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-full"
+                onClick={() => setViewModalParent(null)}
+              >
+                Close
+              </Button>
+              <Button
+                size="sm"
+                className="rounded-full bg-danger text-white hover:bg-danger/90"
+                disabled={actionBusyId === viewModalParent.id}
+                onClick={() => {
+                  const target = viewModalParent;
+                  setViewModalParent(null);
+                  setDeleteModalParent(target);
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete Parent Account
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ================================================================= */}
+      {/* DELETE PARENT CONFIRMATION MODAL                                  */}
+      {/* ================================================================= */}
+      <Modal
+        isOpen={Boolean(deleteModalParent)}
+        onClose={() => setDeleteModalParent(null)}
+        title={`Delete ${deleteModalParent?.fullName || 'Parent'}?`}
+        subtitle="This action permanently removes the parent account, child profiles, notifications, and non-active booking history."
+      >
+        {deleteModalParent && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 rounded-xl border border-danger/30 bg-danger/10 p-3.5 text-xs text-slate-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+              <p className="leading-relaxed">
+                Are you sure you want to permanently delete{' '}
+                <strong>{deleteModalParent.fullName}</strong> (
+                {deleteModalParent.email})? This cannot be undone.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-full"
+                onClick={() => setDeleteModalParent(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="rounded-full bg-danger text-white hover:bg-danger/90"
+                isLoading={actionBusyId === deleteModalParent.id}
+                onClick={() => handleDeleteParent(deleteModalParent)}
+              >
+                Yes, Delete Parent
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* ================================================================= */}
       {/* VIEW CITIZENSHIP ID & INSTITUTION CERTIFICATE MODAL               */}
@@ -1101,25 +1578,25 @@ export function AdminDashboard() {
       <Modal
         isOpen={Boolean(cidModalCaretaker)}
         onClose={() => setCidModalCaretaker(null)}
-        title={`Credential Review — ${cidModalCaretaker?.fullName || ''}`}
+        title={`Caretaker Account & Docs — ${cidModalCaretaker?.fullName || ''}`}
         subtitle={`${cidModalCaretaker?.dzongkhag || ''} • ${
           cidModalCaretaker?.qualifications || ''
         }`}
       >
         {cidModalCaretaker && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 rounded-xl bg-surface-subtle p-3.5 text-xs">
+            <div className="grid grid-cols-2 gap-3 rounded-xl bg-[#F3F7FD] p-3.5 text-xs">
               <div>
-                <p className="text-fg-muted">Contact Email & Phone</p>
-                <p className="font-semibold text-fg mt-0.5">
+                <p className="text-slate-500">Contact Email & Phone</p>
+                <p className="mt-0.5 font-semibold text-slate-900">
                   {cidModalCaretaker.email} • {cidModalCaretaker.phone}
                 </p>
               </div>
               <div>
-                <p className="text-fg-muted">Experience & Monthly Rate</p>
-                <p className="font-semibold text-fg mt-0.5">
+                <p className="text-slate-500">Experience & Monthly Rate</p>
+                <p className="mt-0.5 font-semibold text-slate-900">
                   {cidModalCaretaker.yearsExperience} yrs •{' '}
-                  {formatBtn(cidModalCaretaker.monthlyRateBtn)}/mo
+                  <span className="text-[#1A56B8]">{formatBtn(cidModalCaretaker.monthlyRateBtn)}/mo</span>
                 </p>
               </div>
             </div>
@@ -1127,12 +1604,12 @@ export function AdminDashboard() {
             <div className="grid gap-4 sm:grid-cols-2">
               {/* 1. Citizenship ID (CID) */}
               <div className="space-y-2">
-                <p className="text-xs font-semibold text-fg">
+                <p className="text-xs font-semibold text-slate-900">
                   1. Citizenship ID (CID)
                 </p>
                 {cidDocumentUrl ? (
                   <>
-                    <div className="overflow-hidden rounded-2xl border border-border bg-surface-subtle">
+                    <div className="overflow-hidden rounded-2xl border border-[#E2E8F4] bg-[#F3F7FD]">
                       {isCidPdf ? (
                         <iframe
                           src={cidDocumentUrl}
@@ -1143,7 +1620,7 @@ export function AdminDashboard() {
                         <img
                           src={cidDocumentUrl}
                           alt={`${cidModalCaretaker.fullName} Citizenship ID`}
-                          className="h-[260px] w-full object-contain bg-stone-950/5"
+                          className="h-[260px] w-full bg-slate-950/5 object-contain"
                         />
                       )}
                     </div>
@@ -1151,13 +1628,13 @@ export function AdminDashboard() {
                       href={cidDocumentUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1A56B8] hover:underline"
                     >
                       Open CID in new tab <ExternalLink className="h-3.5 w-3.5" />
                     </a>
                   </>
                 ) : (
-                  <div className="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-xs text-fg">
+                  <div className="rounded-2xl border border-warning/30 bg-warning-soft p-4 text-xs text-slate-800">
                     No Citizenship ID file path attached.
                   </div>
                 )}
@@ -1165,12 +1642,12 @@ export function AdminDashboard() {
 
               {/* 2. Institution Certificate */}
               <div className="space-y-2">
-                <p className="text-xs font-semibold text-fg">
+                <p className="text-xs font-semibold text-slate-900">
                   2. Institution Certificate
                 </p>
                 {certDocumentUrl ? (
                   <>
-                    <div className="overflow-hidden rounded-2xl border border-border bg-surface-subtle">
+                    <div className="overflow-hidden rounded-2xl border border-[#E2E8F4] bg-[#F3F7FD]">
                       {isCertPdf ? (
                         <iframe
                           src={certDocumentUrl}
@@ -1181,7 +1658,7 @@ export function AdminDashboard() {
                         <img
                           src={certDocumentUrl}
                           alt={`${cidModalCaretaker.fullName} Institution Certificate`}
-                          className="h-[260px] w-full object-contain bg-stone-950/5"
+                          className="h-[260px] w-full bg-slate-950/5 object-contain"
                         />
                       )}
                     </div>
@@ -1189,56 +1666,66 @@ export function AdminDashboard() {
                       href={certDocumentUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1A56B8] hover:underline"
                     >
                       Open Certificate in new tab{' '}
                       <ExternalLink className="h-3.5 w-3.5" />
                     </a>
                   </>
                 ) : (
-                  <div className="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-xs text-fg">
+                  <div className="rounded-2xl border border-warning/30 bg-warning-soft p-4 text-xs text-slate-800">
                     No institution certificate attached.
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
-              <Badge
-                variant={
-                  cidModalCaretaker.verificationStatus === 'APPROVED'
-                    ? 'verified'
-                    : cidModalCaretaker.verificationStatus === 'REJECTED'
-                    ? 'rejected'
-                    : 'pending'
-                }
-              >
-                Current: {cidModalCaretaker.verificationStatus}
-              </Badge>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#E8EFFB] pt-3">
+              <VerificationPill status={cidModalCaretaker.verificationStatus} />
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
                   variant="outline"
+                  className="rounded-full"
                   disabled={actionBusyId === cidModalCaretaker.id}
                   onClick={() => {
                     const target = cidModalCaretaker;
                     setCidModalCaretaker(null);
-                    setRejectModalCaretaker(target);
-                    setRejectionReason(target.rejectionReason || '');
+                    setDeleteModalCaretaker(target);
                   }}
                 >
-                  <XCircle className="h-3.5 w-3.5 text-danger" /> Reject
+                  <Trash2 className="h-3.5 w-3.5 text-danger" /> Delete Account
                 </Button>
-                <Button
-                  size="sm"
-                  disabled={actionBusyId === cidModalCaretaker.id}
-                  onClick={() =>
-                    handleVerifyDecision(cidModalCaretaker.id, 'APPROVED')
-                  }
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Approve Caretaker
-                </Button>
+                {cidModalCaretaker.verificationStatus !== 'REJECTED' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-full"
+                    disabled={actionBusyId === cidModalCaretaker.id}
+                    onClick={() => {
+                      const target = cidModalCaretaker;
+                      setCidModalCaretaker(null);
+                      setRejectModalCaretaker(target);
+                      setRejectionReason(target.rejectionReason || '');
+                    }}
+                  >
+                    <XCircle className="h-3.5 w-3.5 text-danger" />
+                    {cidModalCaretaker.verificationStatus === 'APPROVED' ? 'Revoke' : 'Reject'}
+                  </Button>
+                )}
+                {cidModalCaretaker.verificationStatus !== 'APPROVED' && (
+                  <Button
+                    size="sm"
+                    className="rounded-full bg-[#1A56B8] text-white hover:bg-[#154698]"
+                    disabled={actionBusyId === cidModalCaretaker.id}
+                    onClick={() =>
+                      handleVerifyDecision(cidModalCaretaker.id, 'APPROVED')
+                    }
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Approve Caretaker
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -1267,7 +1754,7 @@ export function AdminDashboard() {
             className="space-y-4"
           >
             <div className="space-y-1">
-              <label className="block text-xs font-semibold text-fg">
+              <label className="block text-xs font-semibold text-slate-900">
                 Reason for Rejection
               </label>
               <textarea
@@ -1276,7 +1763,7 @@ export function AdminDashboard() {
                 value={rejectionReason}
                 onChange={(e) => setRejectionReason(e.target.value)}
                 placeholder="e.g., Institution certificate scan is blurry or missing official stamp. Please re-upload."
-                className="w-full rounded-xl border border-border bg-surface-subtle/60 px-3.5 py-2.5 text-sm text-fg focus:border-primary focus:outline-none"
+                className="w-full rounded-xl border border-[#E2E8F4] bg-[#F3F7FD] px-3.5 py-2.5 text-sm text-slate-900 focus:border-[#1A56B8] focus:bg-white focus:outline-none"
               />
             </div>
 
@@ -1284,12 +1771,14 @@ export function AdminDashboard() {
               <Button
                 type="button"
                 variant="outline"
+                className="rounded-full"
                 onClick={() => setRejectModalCaretaker(null)}
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
+                className="rounded-full bg-danger text-white hover:bg-danger/90"
                 isLoading={actionBusyId === rejectModalCaretaker.id}
               >
                 Confirm Rejection
@@ -1310,7 +1799,7 @@ export function AdminDashboard() {
       >
         {deleteModalCaretaker && (
           <div className="space-y-4">
-            <div className="flex items-start gap-3 rounded-xl border border-danger/30 bg-danger/10 p-3.5 text-xs text-fg">
+            <div className="flex items-start gap-3 rounded-xl border border-danger/30 bg-danger/10 p-3.5 text-xs text-slate-800">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
               <p className="leading-relaxed">
                 Are you sure you want to permanently delete{' '}
@@ -1323,12 +1812,14 @@ export function AdminDashboard() {
               <Button
                 type="button"
                 variant="outline"
+                className="rounded-full"
                 onClick={() => setDeleteModalCaretaker(null)}
               >
                 Cancel
               </Button>
               <Button
                 type="button"
+                className="rounded-full bg-danger text-white hover:bg-danger/90"
                 isLoading={actionBusyId === deleteModalCaretaker.id}
                 onClick={() => handleDeleteCaretaker(deleteModalCaretaker)}
               >
@@ -1350,7 +1841,7 @@ export function AdminDashboard() {
       >
         {deleteModalBooking && (
           <div className="space-y-4">
-            <div className="flex items-start gap-3 rounded-xl border border-danger/30 bg-danger/10 p-3.5 text-xs text-fg">
+            <div className="flex items-start gap-3 rounded-xl border border-danger/30 bg-danger/10 p-3.5 text-xs text-slate-800">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
               <p className="leading-relaxed">
                 Delete contract between{' '}
@@ -1363,12 +1854,14 @@ export function AdminDashboard() {
               <Button
                 type="button"
                 variant="outline"
+                className="rounded-full"
                 onClick={() => setDeleteModalBooking(null)}
               >
                 Cancel
               </Button>
               <Button
                 type="button"
+                className="rounded-full bg-danger text-white hover:bg-danger/90"
                 isLoading={actionBusyId === deleteModalBooking.id}
                 onClick={() => handleDeleteBooking(deleteModalBooking)}
               >
@@ -1389,7 +1882,7 @@ export function AdminDashboard() {
         subtitle="Please confirm before ending your current administrator session."
       >
         <div className="space-y-4">
-          <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/10 p-3.5 text-xs text-fg">
+          <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning-soft p-3.5 text-xs text-slate-800">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
             <p className="leading-relaxed">
               <strong>Warning:</strong> Logging out will terminate your active admin session. You will need to sign back in with administrator credentials to audit Citizenship IDs or manage platform contracts.
@@ -1400,11 +1893,12 @@ export function AdminDashboard() {
             <Button
               type="button"
               variant="outline"
+              className="rounded-full"
               onClick={() => setLogoutModalOpen(false)}
             >
               Stay Signed In
             </Button>
-            <Button type="button" onClick={handleConfirmLogout}>
+            <Button type="button" className="rounded-full bg-[#1A56B8] text-white hover:bg-[#154698]" onClick={handleConfirmLogout}>
               Yes, Log Out
             </Button>
           </div>

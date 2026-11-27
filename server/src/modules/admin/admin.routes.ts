@@ -102,6 +102,116 @@ router.get('/stats', authenticate, authorize('ADMIN'), async (_req: Request, res
   }
 });
 
+// Get all registered parents with child profile & booking counts (schema-safe)
+router.get('/parents', authenticate, authorize('ADMIN'), async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const [userCols] = await pool.execute<RowDataPacket[]>('SHOW COLUMNS FROM users');
+    const uNames = new Set(userCols.map((c) => String(c.Field)));
+
+    const dzSelect = uNames.has('dzongkhag') ? 'u.dzongkhag,' : 'NULL AS dzongkhag,';
+    const addrSelect = uNames.has('address') ? 'u.address,' : 'NULL AS address,';
+    const avatarSelect = uNames.has('avatar_url') ? 'u.avatar_url AS avatarUrl,' : 'NULL AS avatarUrl,';
+    const activeSelect = uNames.has('is_active') ? 'u.is_active AS isActive,' : '1 AS isActive,';
+
+    let childCountExpr = '0';
+    try {
+      const [childCols] = await pool.execute<RowDataPacket[]>('SHOW COLUMNS FROM child_profiles');
+      const cNames = new Set(childCols.map((c) => String(c.Field)));
+      const parentFk = cNames.has('parent_id') ? 'parent_id' : cNames.has('user_id') ? 'user_id' : null;
+      if (parentFk) {
+        childCountExpr = `(SELECT COUNT(*) FROM child_profiles ch WHERE ch.${parentFk} = u.id)`;
+      }
+    } catch {
+      childCountExpr = '0';
+    }
+
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT u.id,
+              u.full_name AS fullName,
+              u.email,
+              u.phone,
+              ${dzSelect}
+              ${addrSelect}
+              ${avatarSelect}
+              ${activeSelect}
+              u.created_at AS createdAt,
+              ${childCountExpr} AS childrenCount,
+              (SELECT COUNT(*) FROM bookings b WHERE b.parent_id = u.id) AS totalBookingsCount,
+              (SELECT COUNT(*) FROM bookings b WHERE b.parent_id = u.id AND b.status IN ('ACCEPTED', 'CONFIRMED', 'ACTIVE')) AS activeContractsCount
+       FROM users u
+       WHERE u.role = 'PARENT'
+       ORDER BY u.created_at DESC`
+    );
+
+    res.json({
+      parents: rows.map((p) => ({
+        ...p,
+        childrenCount: Number(p.childrenCount || 0),
+        totalBookingsCount: Number(p.totalBookingsCount || 0),
+        activeContractsCount: Number(p.activeContractsCount || 0),
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Delete a parent account & associated records/files
+router.delete('/parents/:id', authenticate, authorize('ADMIN'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const parentId = String(req.params.id);
+
+    const [userCols] = await pool.execute<RowDataPacket[]>('SHOW COLUMNS FROM users');
+    const uNames = new Set(userCols.map((c) => String(c.Field)));
+    const avatarSelect = uNames.has('avatar_url') ? ', avatar_url AS avatarUrl' : '';
+
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT id, full_name AS fullName${avatarSelect}
+       FROM users
+       WHERE id = ? AND role = 'PARENT'`,
+      [parentId]
+    );
+
+    const target = rows[0];
+    if (!target) {
+      throw new AppError('Parent account not found.', 404);
+    }
+
+    const [[activeRow]] = await pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) AS count
+       FROM bookings
+       WHERE parent_id = ? AND status IN ('CONFIRMED', 'ACTIVE')`,
+      [parentId]
+    );
+
+    if (Number(activeRow?.count || 0) > 0) {
+      throw new AppError('Cannot delete a parent account with active or confirmed 6-month contracts.', 400);
+    }
+
+    await pool.execute(`DELETE FROM notifications WHERE user_id = ?`, [parentId]);
+    await pool.execute(`DELETE FROM bookings WHERE parent_id = ?`, [parentId]);
+    try {
+      const [childCols] = await pool.execute<RowDataPacket[]>('SHOW COLUMNS FROM child_profiles');
+      const cNames = new Set(childCols.map((c) => String(c.Field)));
+      const parentFk = cNames.has('parent_id') ? 'parent_id' : cNames.has('user_id') ? 'user_id' : null;
+      if (parentFk) {
+        await pool.execute(`DELETE FROM child_profiles WHERE ${parentFk} = ?`, [parentId]);
+      }
+    } catch {
+      // Ignore if child_profiles table does not exist
+    }
+    await pool.execute(`DELETE FROM users WHERE id = ? AND role = 'PARENT'`, [parentId]);
+
+    if (target.avatarUrl) {
+      tryDeleteUploadedFile(target.avatarUrl);
+    }
+
+    res.json({ success: true, message: `Parent account (${target.fullName}) deleted.` });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Get all caretakers with their caretaker_profiles, CID, and Institution Certificate paths
 router.get('/caretakers', authenticate, authorize('ADMIN'), async (_req: Request, res: Response, next: NextFunction) => {
   try {
@@ -222,7 +332,6 @@ router.delete('/caretakers/:id', authenticate, authorize('ADMIN'), async (req: R
       throw new AppError('Caretaker account not found.', 404);
     }
 
-    // Delete dependent records safely in case ON DELETE CASCADE is not set on all FKs
     await pool.execute(`DELETE FROM notifications WHERE user_id = ?`, [caretakerId]);
     await pool.execute(`DELETE FROM bookings WHERE caretaker_id = ?`, [caretakerId]);
     await pool.execute(`DELETE FROM caretaker_profiles WHERE ${fkCol} = ?`, [caretakerId]);
